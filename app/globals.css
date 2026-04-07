@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ---------------------------------------------------------------------------
+   Dark mode: applies when <html> has class="dark"
+   @variant makes the dark: prefix work on all Tailwind utilities.
+--------------------------------------------------------------------------- */
+@variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Design token color system — "The Silent Architecture"
+   All bg-*, text-*, border-* Tailwind utilities reference these CSS variables.
+   Overriding them in .dark {} is all that's needed for dark mode — no dark:
+   prefixes required on most elements.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Surfaces */
+  --color-surface:                    #f7f9fb;
+  --color-surface-bright:             #f7f9fb;
+  --color-surface-dim:                #cfdce3;
+  --color-surface-container-lowest:   #ffffff;
+  --color-surface-container-low:      #f0f4f7;
+  --color-surface-container:          #e8eff3;
+  --color-surface-container-high:     #e1e9ee;
+  --color-surface-container-highest:  #d9e4ea;
+  --color-surface-variant:            #d9e4ea;
+  --color-background:                 #f7f9fb;
+  --color-on-background:              #2a3439;
+
+  /* Content */
+  --color-on-surface:                 #2a3439;
+  --color-on-surface-variant:         #566166;
+
+  /* Primary (teal) */
+  --color-primary:                    #8AB0AB;
+  --color-primary-dim:                #648083;
+  --color-primary-container:          #def0ee;
+  --color-primary-fixed-dim:          #cce0de;
+  --color-on-primary:                 #ffffff;
+  --color-on-primary-container:       #3d504e;
+  --color-inverse-primary:            #648083;
+
+  /* Secondary */
+  --color-secondary:                  #526074;
+  --color-secondary-container:        #d5e3fc;
+  --color-on-secondary:               #f8f8ff;
+  --color-on-secondary-container:     #455367;
+
+  /* Tertiary */
+  --color-tertiary:                   #575e78;
+  --color-tertiary-container:         #d2d9f8;
+  --color-on-tertiary-container:      #444c65;
+
+  /* Outline */
+  --color-outline:                    #717c82;
+  --color-outline-variant:            #a9b4b9;
+
+  /* Error */
+  --color-error:                      #9e3f4e;
+  --color-error-container:            #ff8b9a;
+  --color-on-error:                   #fff7f7;
+
+  /* Inverse */
+  --color-inverse-surface:            #0b0f10;
+  --color-inverse-on-surface:         #9a9d9f;
+
+  /* Typography */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ---------------------------------------------------------------------------
+   Dark mode overrides — switching these is all that's needed.
+   Every utility that uses the token above auto-updates.
+--------------------------------------------------------------------------- */
+.dark {
+  --color-background:                 #0f172a;
+  --color-on-background:              #f1f5f9;
+  --color-surface:                    #0f172a;
+  --color-surface-bright:             #1e293b;
+  --color-surface-dim:                #020617;
+  --color-surface-container-lowest:   #1e293b;
+  --color-surface-container-low:      #0a1120;
+  --color-surface-container:          #1e293b;
+  --color-surface-container-high:     #273549;
+  --color-surface-container-highest:  #334155;
+  --color-surface-variant:            #1e293b;
+  --color-on-surface:                 #f1f5f9;
+  --color-on-surface-variant:         #94a3b8;
+  --color-outline:                    #475569;
+  --color-outline-variant:            #334155;
+  --color-primary:                    #8AB0AB;
+  --color-primary-dim:                #a0c4c0;
+  --color-on-primary:                 #0f172a;
+  --color-primary-container:          #1e3a38;
+  --color-on-primary-container:       #cce0de;
+  --color-secondary-container:        #1e293b;
+  --color-on-secondary-container:     #94a3b8;
+  --color-inverse-surface:            #f1f5f9;
+  --color-inverse-on-surface:         #334155;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+/* Kanban scrollbar */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--color-surface-container-highest); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-outline-variant); }
