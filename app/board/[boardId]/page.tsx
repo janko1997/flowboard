@@ -1,14 +1,30 @@
 'use client'
 
-import { useEffect } from 'react'
+import { use, useEffect } from 'react'
+import { LiveList, LiveMap } from '@liveblocks/client'
 import { useBoardStore } from '@/store'
 import { api } from '@/lib/api'
 import { mockBoardSnapshot } from '@/lib/mockData'
+import { RoomProvider } from '@/lib/liveblocks'
+import { randomName, randomHue } from '@/lib/randomIdentity'
+
+// Generated once per page load — replaced by auth identity in Phase 3.
+const MY_NAME = randomName()
+const MY_HUE  = randomHue()
+import { useBoardSync } from '@/hooks/useBoardSync'
+import { useLiveblocksWriter } from '@/hooks/useLiveblocksWriter'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProjectHeader } from '@/components/board/ProjectHeader'
 import { BoardCanvas } from '@/components/board/BoardCanvas'
 
-export default function BoardPage() {
+// ---------------------------------------------------------------------------
+// BoardRoom — rendered inside RoomProvider so Liveblocks hooks are available.
+// Owns the REST hydration fallback and calls useBoardSync for storage sync.
+// ---------------------------------------------------------------------------
+function BoardRoom() {
+  useBoardSync()
+  useLiveblocksWriter()
+
   const hydrate = useBoardStore(s => s.hydrate)
   const board   = useBoardStore(s => s.board)
 
@@ -42,5 +58,26 @@ export default function BoardPage() {
       <ProjectHeader />
       <BoardCanvas />
     </AppShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BoardPage — owns RoomProvider. Keeps Liveblocks config out of BoardRoom.
+// ---------------------------------------------------------------------------
+export default function BoardPage({ params }: { params: Promise<{ boardId: string }> }) {
+  const { boardId } = use(params)
+
+  return (
+    <RoomProvider
+      id={boardId}
+      initialPresence={{ cursor: null, name: MY_NAME, hue: MY_HUE }}
+      initialStorage={{
+        cards: new LiveMap(),
+        columns: new LiveMap(),
+        columnOrder: new LiveList([]),
+      }}
+    >
+      <BoardRoom />
+    </RoomProvider>
   )
 }

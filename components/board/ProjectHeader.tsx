@@ -11,14 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { useBoardStore } from '@/store'
-
-// Static team members for the presence strip — Phase 2 replaces with useOthers()
-const STATIC_MEMBERS = [
-  { initials: 'AJ', hue: 30 },
-  { initials: 'SL', hue: 210 },
-  { initials: 'CW', hue: 340 },
-  { initials: 'MR', hue: 160 },
-]
+import { PresenceBar } from '@/components/board/presence/PresenceBar'
 
 export function ProjectHeader() {
   const boardTitle = useBoardStore(s => s.board?.title ?? 'Untitled Board')
@@ -39,15 +32,7 @@ export function ProjectHeader() {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Presence strip — Phase 2: swap with useOthers() avatars */}
-          <div className="flex items-center -space-x-2">
-            {STATIC_MEMBERS.map((m) => (
-              <InitialAvatar key={m.initials} initials={m.initials} hue={m.hue} size={8} ring />
-            ))}
-            <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface bg-surface-container-highest text-[10px] font-bold text-on-surface-variant">
-              +2
-            </div>
-          </div>
+          <PresenceBar />
 
           <button className="flex items-center gap-2 rounded-lg border border-outline-variant/10 bg-surface-container-low px-4 py-2 text-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high">
             <ShareIcon />
@@ -91,11 +76,13 @@ export function InitialAvatar({
   hue,
   size = 6,
   ring = false,
+  title,
 }: {
   initials: string
   hue: number
   size?: number
   ring?: boolean
+  title?: string
 }) {
   // Generate a deterministic pastel background from the hue
   const bg    = `hsl(${hue}, 55%, 72%)`
@@ -112,7 +99,7 @@ export function InitialAvatar({
         color,
         fontSize:        `${Math.max(9, size * 1.6)}px`,
       }}
-      title={initials}
+      title={title ?? initials}
     >
       {initials}
     </div>

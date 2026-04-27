@@ -26,6 +26,7 @@ import { comparePositions } from '@/lib/fractionalIndex'
 // in store/index.ts when slices are composed.
 type ImmerSet = (fn: (draft: BoardSlice) => void) => void
 import type { Board, Card, Column, BoardSnapshot } from '@/types/board'
+import type { ServerDelta } from '@/types/serverDelta'
 import type {
   PendingMutation,
   InverseOperation,
@@ -66,6 +67,21 @@ export interface BoardSlice {
    * In Phase 1 this flag is always false and the code path is a no-op.
    */
   hydrate: (snapshot: BoardSnapshot, rebasePending?: boolean) => void
+
+  // ---- Real-time sync (Phase 2) -------------------------------------------
+  /**
+   * Sequence number of the last successfully applied remote delta.
+   * Deltas with seqNo <= lastSeqNo are rejected as stale.
+   * Resets to 0 on hydrate (fresh snapshot = new baseline).
+   */
+  lastSeqNo: number
+  /**
+   * Apply a delta that arrived from another client via Liveblocks storage.
+   * Skips the delta if:
+   *   - seqNo <= lastSeqNo              (stale — already seen a newer state)
+   *   - a pending mutation targets the same entityId (preserve optimistic state)
+   */
+  applyServerDelta: (delta: ServerDelta) => void
 
   // ---- Card mutations ------------------------------------------------------
   // Each optimistic action returns the mutation ID it enqueued so the caller
@@ -205,6 +221,46 @@ function _applyMoveColumn(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2 helpers — used by applyServerDelta to handle both add and update.
+// Separate from _applyAddCard/_applyAddColumn because those helpers push the
+// id unconditionally, which creates duplicates when the entity already exists.
+// ---------------------------------------------------------------------------
+
+function _applySetCard(
+  draft: Pick<BoardSlice, 'cards' | 'cardOrder'>,
+  card: Card
+): void {
+  const existing = draft.cards[card.id]
+  if (existing && existing.columnId !== card.columnId) {
+    // Card moved to a different column — remove from old column order first
+    draft.cardOrder[existing.columnId] = (draft.cardOrder[existing.columnId] ?? []).filter(
+      id => id !== card.id
+    )
+  }
+  draft.cards[card.id] = card
+  const targetOrder = draft.cardOrder[card.columnId] ?? []
+  if (!targetOrder.includes(card.id)) {
+    targetOrder.push(card.id)
+  }
+  draft.cardOrder[card.columnId] = targetOrder.sort(
+    (a, b) => comparePositions(draft.cards[a].position, draft.cards[b].position) || a.localeCompare(b)
+  )
+}
+
+function _applySetColumn(
+  draft: Pick<BoardSlice, 'columns' | 'columnOrder'>,
+  column: Column
+): void {
+  draft.columns[column.id] = column
+  if (!draft.columnOrder.includes(column.id)) {
+    draft.columnOrder.push(column.id)
+  }
+  draft.columnOrder.sort(
+    (a, b) => comparePositions(draft.columns[a].position, draft.columns[b].position) || a.localeCompare(b)
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Helper: enqueue a pending mutation and return its ID
 // ---------------------------------------------------------------------------
 
@@ -300,6 +356,7 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
   columnOrder:        [],
   pendingMutations:   {},
   pendingMutationIds: [],
+  lastSeqNo:          0,
 
   // ---- Lifecycle -----------------------------------------------------------
 
@@ -496,6 +553,48 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
       delete draft.pendingMutations[mutationId]
       draft.pendingMutationIds = draft.pendingMutationIds.filter(id => id !== mutationId)
       _pruneConfirmed(draft)
+    })
+  },
+
+  // ---- Real-time sync (Phase 2) --------------------------------------------
+
+  applyServerDelta: (delta) => {
+    set(draft => {
+      // Reject stale deltas — we already have a newer state
+      if (delta.seqNo <= draft.lastSeqNo) return
+
+      // Determine which entity this delta targets
+      const entityId =
+        delta.type === 'SET_CARD'      ? delta.card.id :
+        delta.type === 'DELETE_CARD'   ? delta.cardId   :
+        delta.type === 'SET_COLUMN'    ? delta.column.id :
+        delta.columnId
+
+      // Skip if a pending (in-flight) optimistic mutation owns this entity.
+      // Applying a remote delta on top of an optimistic mutation would corrupt
+      // the user's in-progress action; let the mutation confirm/rollback first.
+      const hasConflict = draft.pendingMutationIds.some(id => {
+        const m = draft.pendingMutations[id]
+        return m?.status === 'pending' && m.entityId === entityId
+      })
+      if (hasConflict) return
+
+      draft.lastSeqNo = delta.seqNo
+
+      switch (delta.type) {
+        case 'SET_CARD':
+          _applySetCard(draft, delta.card)
+          break
+        case 'DELETE_CARD':
+          _applyDeleteCard(draft, delta.cardId)
+          break
+        case 'SET_COLUMN':
+          _applySetColumn(draft, delta.column)
+          break
+        case 'DELETE_COLUMN':
+          _applyDeleteColumn(draft, delta.columnId)
+          break
+      }
     })
   },
 })
