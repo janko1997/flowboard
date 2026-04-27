@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { useStorage } from "@/lib/liveblocks";
+import { useStorage, useStatus } from "@/lib/liveblocks";
 import { useBoardStore } from "@/store";
 import { consumeLocalWrite } from "@/store/liveblocksChannel";
+import { api } from "@/lib/api";
 import type { Card, Column } from "@/types/board";
 import type { JsonObject } from "@liveblocks/client";
 
@@ -23,9 +24,26 @@ import type { JsonObject } from "@liveblocks/client";
  */
 export function useBoardSync() {
   const applyServerDelta = useBoardStore((s) => s.applyServerDelta);
+  const hydrate          = useBoardStore((s) => s.hydrate);
   const board = useBoardStore((s) => s.board);
 
-  const hasSynced = useRef(false);
+  const hasSynced   = useRef(false);
+  const prevStatus  = useRef<ReturnType<typeof useStatus> | null>(null);
+  const status      = useStatus();
+
+  // -------------------------------------------------------------------------
+  // Reconnect handling — fires when Liveblocks recovers from 'reconnecting'.
+  // Fetches a fresh server snapshot and rebases any pending optimistic mutations
+  // on top of it so in-flight changes are not silently discarded.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (prevStatus.current === 'reconnecting' && status === 'connected') {
+      api.getSnapshot()
+        .then(snapshot => hydrate(snapshot, true))
+        .catch(err => console.error('[FlowBoard] Reconnect re-sync failed', err))
+    }
+    prevStatus.current = status
+  }, [status, hydrate])
   // Previous ReadonlyMap references — Liveblocks uses structural sharing so
   // an unchanged entry keeps the same object reference across storage updates.
   const prevCards = useRef<ReadonlyMap<string, Readonly<JsonObject>> | null>(null);

@@ -97,5 +97,15 @@ export interface PendingMutation {
   entityId: string
   enqueuedAt: number
   status: 'pending' | 'confirmed' | 'failed'
+  /**
+   * How to undo this mutation (applied on rollback).
+   * For ADD_CARD → DELETE_CARD; for DELETE_CARD → ADD_CARD; etc.
+   */
   inverseOperation: InverseOperation
+  /**
+   * How to re-apply this mutation (applied during rebase after reconnect).
+   * Required because the inverse of RENAME/MOVE cannot reconstruct the new
+   * title or new position — only the old value is stored in the inverse.
+   */
+  forwardOperation: InverseOperation
 }

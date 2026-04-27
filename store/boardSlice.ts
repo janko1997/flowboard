@@ -268,6 +268,7 @@ function _enqueue(
   draft: Pick<BoardSlice, 'pendingMutations' | 'pendingMutationIds'>,
   type: PendingMutation['type'],
   inverse: InverseOperation,
+  forward: InverseOperation,
   entityId: string,
   id = nanoid()   // caller pre-generates so the ID is known before set() completes
 ): string {
@@ -278,6 +279,7 @@ function _enqueue(
     enqueuedAt: Date.now(),
     status: 'pending',
     inverseOperation: inverse,
+    forwardOperation: forward,
   }
   draft.pendingMutationIds.push(id)
   return id
@@ -363,9 +365,11 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
   hydrate: (snapshot, rebasePending = false) => {
     set(draft => {
       // Convert server arrays → flat maps
-      draft.board   = snapshot.board
-      draft.columns = Object.fromEntries(snapshot.columns.map(c => [c.id, c]))
-      draft.cards   = Object.fromEntries(snapshot.cards.map(c => [c.id, c]))
+      // Shallow-clone each entity so Immer can create mutable proxies for them.
+      // Snapshot objects may be frozen (Immer freezes state after each produce).
+      draft.board   = { ...snapshot.board }
+      draft.columns = Object.fromEntries(snapshot.columns.map(c => [c.id, { ...c }]))
+      draft.cards   = Object.fromEntries(snapshot.cards.map(c => [c.id, { ...c }]))
 
       // Build columnOrder index from fractional positions
       draft.columnOrder = snapshot.columns
@@ -382,13 +386,15 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
           .map(card => card.id)
       }
 
-      // Phase 2 stub: re-apply pending mutations on top of fresh snapshot.
-      // Required after WebSocket reconnect so in-flight optimistic updates
-      // are not silently discarded by the hydrate overwrite.
+      // Re-apply pending (in-flight) mutations on top of the fresh snapshot.
+      // Confirmed mutations are already reflected in the server snapshot — skip them.
+      // Uses _applyInverse with forwardOperation (same dispatch table, opposite direction).
       if (rebasePending) {
-        // TODO Phase 2: iterate pendingMutationIds and re-apply each mutation
-        // using its original payload via the _apply* helpers.
-        console.warn('[FlowBoard] rebasePending not yet implemented (Phase 2)')
+        for (const mutId of draft.pendingMutationIds) {
+          const mut = draft.pendingMutations[mutId]
+          if (!mut || mut.status !== 'pending') continue
+          _applyInverse(draft, mut.forwardOperation)
+        }
       }
     })
   },
@@ -399,10 +405,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     const mutId = nanoid()
     set(draft => {
       _applyAddCard(draft, payload.card)
-      _enqueue(draft, 'ADD_CARD', {
-        type: 'DELETE_CARD',
-        payload: { cardId: payload.card.id, columnId: payload.card.columnId },
-      }, payload.card.id, mutId)
+      _enqueue(
+        draft, 'ADD_CARD',
+        { type: 'DELETE_CARD', payload: { cardId: payload.card.id, columnId: payload.card.columnId } },
+        { type: 'ADD_CARD',    payload: { card: payload.card } },
+        payload.card.id, mutId,
+      )
     })
     return mutId
   },
@@ -412,10 +420,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     set(draft => {
       const oldTitle = draft.cards[payload.cardId]?.title ?? ''
       _applyRenameCard(draft, payload.cardId, payload.title)
-      _enqueue(draft, 'RENAME_CARD', {
-        type: 'RENAME_CARD',
-        payload: { cardId: payload.cardId, title: oldTitle },
-      }, payload.cardId, mutId)
+      _enqueue(
+        draft, 'RENAME_CARD',
+        { type: 'RENAME_CARD', payload: { cardId: payload.cardId, title: oldTitle } },
+        { type: 'RENAME_CARD', payload: { cardId: payload.cardId, title: payload.title } },
+        payload.cardId, mutId,
+      )
     })
     return mutId
   },
@@ -427,10 +437,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
       if (!card) return
       const cardSnapshot = { ...card }
       _applyDeleteCard(draft, payload.cardId)
-      _enqueue(draft, 'DELETE_CARD', {
-        type: 'ADD_CARD',
-        payload: { card: cardSnapshot },
-      }, payload.cardId, mutId)
+      _enqueue(
+        draft, 'DELETE_CARD',
+        { type: 'ADD_CARD',    payload: { card: cardSnapshot } },
+        { type: 'DELETE_CARD', payload: { cardId: payload.cardId, columnId: cardSnapshot.columnId } },
+        payload.cardId, mutId,
+      )
     })
     return mutId
   },
@@ -440,16 +452,16 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     set(draft => {
       const card = draft.cards[payload.cardId]
       if (!card) return
-      const inverse: InverseOperation = {
-        type: 'MOVE_CARD',
-        payload: {
-          cardId:      payload.cardId,
-          toColumnId:  card.columnId,
-          newPosition: card.position,
-        },
-      }
+      // Capture old values before _applyMoveCard mutates the card in place.
+      const oldColumnId = card.columnId
+      const oldPosition = card.position
       _applyMoveCard(draft, payload)
-      _enqueue(draft, 'MOVE_CARD', inverse, payload.cardId, mutId)
+      _enqueue(
+        draft, 'MOVE_CARD',
+        { type: 'MOVE_CARD', payload: { cardId: payload.cardId, toColumnId: oldColumnId,        newPosition: oldPosition } },
+        { type: 'MOVE_CARD', payload: { cardId: payload.cardId, toColumnId: payload.toColumnId, newPosition: payload.newPosition } },
+        payload.cardId, mutId,
+      )
     })
     return mutId
   },
@@ -460,10 +472,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     const mutId = nanoid()
     set(draft => {
       _applyAddColumn(draft, payload.column)
-      _enqueue(draft, 'ADD_COLUMN', {
-        type: 'DELETE_COLUMN',
-        payload: { columnId: payload.column.id },
-      }, payload.column.id, mutId)
+      _enqueue(
+        draft, 'ADD_COLUMN',
+        { type: 'DELETE_COLUMN', payload: { columnId: payload.column.id } },
+        { type: 'ADD_COLUMN',    payload: { column: payload.column } },
+        payload.column.id, mutId,
+      )
     })
     return mutId
   },
@@ -473,10 +487,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     set(draft => {
       const oldTitle = draft.columns[payload.columnId]?.title ?? ''
       _applyRenameColumn(draft, payload.columnId, payload.title)
-      _enqueue(draft, 'RENAME_COLUMN', {
-        type: 'RENAME_COLUMN',
-        payload: { columnId: payload.columnId, title: oldTitle },
-      }, payload.columnId, mutId)
+      _enqueue(
+        draft, 'RENAME_COLUMN',
+        { type: 'RENAME_COLUMN', payload: { columnId: payload.columnId, title: oldTitle } },
+        { type: 'RENAME_COLUMN', payload: { columnId: payload.columnId, title: payload.title } },
+        payload.columnId, mutId,
+      )
     })
     return mutId
   },
@@ -488,10 +504,12 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
       if (!column) return
       const columnSnapshot = { ...column }
       _applyDeleteColumn(draft, payload.columnId)
-      _enqueue(draft, 'DELETE_COLUMN', {
-        type: 'ADD_COLUMN',
-        payload: { column: columnSnapshot },
-      }, payload.columnId, mutId)
+      _enqueue(
+        draft, 'DELETE_COLUMN',
+        { type: 'ADD_COLUMN',    payload: { column: columnSnapshot } },
+        { type: 'DELETE_COLUMN', payload: { columnId: payload.columnId } },
+        payload.columnId, mutId,
+      )
     })
     return mutId
   },
@@ -501,12 +519,15 @@ export const createBoardSlice = (set: ImmerSet): BoardSlice => ({
     set(draft => {
       const col = draft.columns[payload.columnId]
       if (!col) return
-      const inverse: InverseOperation = {
-        type: 'MOVE_COLUMN',
-        payload: { columnId: payload.columnId, newPosition: col.position },
-      }
+      // Capture old position before _applyMoveColumn mutates the column in place.
+      const oldPosition = col.position
       _applyMoveColumn(draft, payload)
-      _enqueue(draft, 'MOVE_COLUMN', inverse, payload.columnId, mutId)
+      _enqueue(
+        draft, 'MOVE_COLUMN',
+        { type: 'MOVE_COLUMN', payload: { columnId: payload.columnId, newPosition: oldPosition } },
+        { type: 'MOVE_COLUMN', payload: { columnId: payload.columnId, newPosition: payload.newPosition } },
+        payload.columnId, mutId,
+      )
     })
     return mutId
   },

@@ -23,7 +23,7 @@
 //   absolutely positioned, pointer-events-none.
 // ---------------------------------------------------------------------------
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { nanoid } from "nanoid";
 import { useShallow } from "zustand/shallow";
 import {
@@ -39,6 +39,8 @@ import {
 import { arrayMove } from "@dnd-kit/sortable";
 import { useBoardStore } from "@/store";
 import { mutate } from "@/store/mutationQueue";
+import { useUpdateMyPresence } from "@/lib/liveblocks";
+import { normalizeCoords } from "@/lib/cursorCoords";
 import { Column } from "./Column/Column";
 import { Card } from "./Card/Card";
 import { DragProvider, useDragContext } from "./DragContext";
@@ -60,6 +62,22 @@ function BoardCanvasContent() {
   // a remote card update must not re-render the entire canvas (Phase 2 concern).
 
   const { activeCardId, setActiveCardId } = useDragContext();
+
+  const updateMyPresence = useUpdateMyPresence();
+  const lastSentAt = useRef(0);
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const now = Date.now();
+    if (now - lastSentAt.current < 50) return;
+    lastSentAt.current = now;
+    updateMyPresence({
+      cursor: normalizeCoords(e.clientX, e.clientY, window.innerWidth, window.innerHeight),
+    });
+  }
+
+  function handlePointerLeave() {
+    updateMyPresence({ cursor: null });
+  }
 
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColTitle, setNewColTitle] = useState("");
@@ -166,7 +184,11 @@ function BoardCanvasContent() {
   // ---- Render --------------------------------------------------------------
 
   return (
-    <div className="relative flex-1 overflow-x-auto overflow-y-hidden">
+    <div
+      className="relative flex-1 overflow-x-auto overflow-y-hidden"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+    >
       {/* Dev-only pending mutations badge */}
       {pendingCount > 0 && (
         <div className="absolute right-4 top-3 z-10">

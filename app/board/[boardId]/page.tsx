@@ -16,6 +16,8 @@ import { useLiveblocksWriter } from '@/hooks/useLiveblocksWriter'
 import { AppShell } from '@/components/layout/AppShell'
 import { ProjectHeader } from '@/components/board/ProjectHeader'
 import { BoardCanvas } from '@/components/board/BoardCanvas'
+import { CursorOverlay } from '@/components/board/presence/CursorOverlay'
+import { ReconnectBanner } from '@/components/board/presence/ReconnectBanner'
 
 // ---------------------------------------------------------------------------
 // BoardRoom — rendered inside RoomProvider so Liveblocks hooks are available.
@@ -54,10 +56,14 @@ function BoardRoom() {
   }
 
   return (
-    <AppShell>
-      <ProjectHeader />
-      <BoardCanvas />
-    </AppShell>
+    <>
+      <AppShell>
+        <ProjectHeader />
+        <BoardCanvas />
+      </AppShell>
+      <CursorOverlay />
+      <ReconnectBanner />
+    </>
   )
 }
 

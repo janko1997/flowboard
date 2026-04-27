@@ -141,3 +141,59 @@ describe('applyServerDelta', () => {
     expect(store.getState().lastSeqNo).toBe(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// hydrate with rebasePending
+// ---------------------------------------------------------------------------
+
+describe('hydrate rebasePending', () => {
+  it('re-applies a pending rename on top of the fresh snapshot', () => {
+    // Optimistically rename c1 — creates a pending mutation
+    store.getState().optimisticRenameCard({ cardId: 'c1', title: 'Offline Rename' })
+    expect(store.getState().cards['c1'].title).toBe('Offline Rename')
+
+    // Simulate reconnect: fresh snapshot reverts to server title
+    store.getState().hydrate(snapshot, true)
+
+    // Rebase must re-apply the pending rename on top
+    expect(store.getState().cards['c1'].title).toBe('Offline Rename')
+    // Pending mutation is still in the queue (not yet confirmed by server)
+    expect(store.getState().pendingMutationIds).toHaveLength(1)
+  })
+
+  it('applies multiple pending mutations in insertion order', () => {
+    const col2: Column = {
+      id: 'col2', boardId: 'b1', title: 'Done',
+      position: 'b0', createdAt: 0, updatedAt: 0,
+    }
+    const snapshotWith2Cols: BoardSnapshot = { board, columns: [col1, col2], cards: [card1] }
+    store.getState().hydrate(snapshotWith2Cols)
+
+    // Two pending mutations: rename then move to col2
+    store.getState().optimisticRenameCard({ cardId: 'c1', title: 'Offline Rename' })
+    store.getState().optimisticMoveCard({ cardId: 'c1', toColumnId: 'col2', newPosition: 'a0' })
+
+    expect(store.getState().cards['c1'].title).toBe('Offline Rename')
+    expect(store.getState().cards['c1'].columnId).toBe('col2')
+
+    // Reconnect: fresh snapshot shows original state
+    store.getState().hydrate(snapshotWith2Cols, true)
+
+    // Both mutations must be re-applied in order: rename first, then move
+    expect(store.getState().cards['c1'].title).toBe('Offline Rename')
+    expect(store.getState().cards['c1'].columnId).toBe('col2')
+    expect(store.getState().cardOrder['col2']).toContain('c1')
+    expect(store.getState().cardOrder['col1']).not.toContain('c1')
+  })
+
+  it('does NOT re-apply mutations when rebasePending is false (default)', () => {
+    store.getState().optimisticRenameCard({ cardId: 'c1', title: 'Offline Rename' })
+    expect(store.getState().cards['c1'].title).toBe('Offline Rename')
+
+    // Plain hydrate (no rebase) — pending mutations are wiped by the snapshot
+    store.getState().hydrate(snapshot)
+
+    // Server title wins; the optimistic rename is gone
+    expect(store.getState().cards['c1'].title).toBe('Original')
+  })
+})

@@ -6,9 +6,13 @@ import type { Board, Card, Column } from '@/types/board'
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock('@/lib/liveblocks', () => ({ useStorage: vi.fn() }))
+vi.mock('@/lib/liveblocks', () => ({
+  useStorage: vi.fn(),
+  useStatus:  vi.fn(() => 'connected'),  // stable default; reconnect path not tested here
+}))
 vi.mock('@/store', () => ({ useBoardStore: vi.fn() }))
 vi.mock('@/store/liveblocksChannel', () => ({ consumeLocalWrite: vi.fn(() => false) }))
+vi.mock('@/lib/api', () => ({ api: { getSnapshot: vi.fn() } }))
 
 import { useStorage } from '@/lib/liveblocks'
 import { useBoardStore } from '@/store'
